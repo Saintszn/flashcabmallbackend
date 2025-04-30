@@ -15,10 +15,25 @@ exports.getWishlist = (req, res) => {
     ORDER BY w.createdAt DESC
   `;
   db.query(sql, [userId], (err, results) => {
-    if (err) return res.status(500).json({ message: 'Database error', error: err });
-    res.json(results);
+    if (err) {
+      return res.status(500).json({ message: 'Database error', error: err });
+    }
+    // Apply flash sale discount if active
+    const flashSaleSql = 'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1';
+    db.query(flashSaleSql, (err2, flashResults) => {
+      if (!err2 && flashResults.length > 0) {
+        const discount = parseFloat(flashResults[0].discount);
+        results = results.map(item => {
+          const newPrice = item.price * (1 - discount / 100);
+          item.price = parseFloat(newPrice.toFixed(2));
+          return item;
+        });
+      }
+      res.json(results);
+    });
   });
 };
+
 
 exports.addToWishlist = (req, res) => {
   const userId = req.user.id;

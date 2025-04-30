@@ -49,14 +49,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// -- CORS configured for both panels
-app.use(cors({
-  origin: [process.env.ADMIN_PANEL_URL, process.env.USER_PANEL_URL],
-  credentials: true
+
+const corsOrigin = process.env.CORS_ORIGIN || '*';
+app.use(cors({ 
+  origin: true,
+  credentials: true 
 }));
+
+app.options('*', cors());
+
+
 
 app.use(bodyParser.json());
 app.use(morgan('dev'));
+
 
 // 1. Serve uploads/users statically
 app.use(
@@ -103,11 +109,9 @@ app.get('/api/search', authMiddleware, searchController.searchProducts);
 
 // Use routes
 app .use('/api/auth', authRoutes);
-app.use('/api/auth/login', authMiddleware, authRoutes);
-app.use('/api/auth/signup', authMiddleware, authRoutes);
-app.use('/api/auth/validate', authMiddleware, authRoutes);
-app.use('/api/user/profile-Image', authMiddleware, authRoutes);
-app.use('/api/user/profile', authMiddleware, authRoutes);
+app .use('/api/auth/login', authRoutes);
+app .use('/api/auth/signup', authRoutes);
+app .use( '/api/coupons/validate', authRoutes)
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/coupons', authMiddleware, couponRoutes);
@@ -154,9 +158,10 @@ app.get('/admin-panel/*', (req, res) => {
 
 // -- Create HTTP & Socket.IO servers
 const server = http.createServer(app);
+// Allow Socket.IO from any LAN host
 const io = new Server(server, {
   cors: {
-    origin: [process.env.ADMIN_PANEL_URL, process.env.USER_PANEL_URL],
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -164,6 +169,9 @@ const io = new Server(server, {
 
 // -- Attach io to express for controllers
 app.set('io', io);
+
+// -- Start listening
+const PORT = process.env.PORT || 3000;
 
 // -- Socket.IO authentication & rooms
 io.use((socket, next) => {
@@ -422,8 +430,6 @@ const builtInCategories = [
 ];
 
 
-const PORT = process.env.PORT || 3000;
-
 db.getConnection((err, connection) => {
   if (err) {
     console.error('Error connecting to the database:', err);
@@ -459,8 +465,8 @@ db.getConnection((err, connection) => {
 
           // Release connection and start server
           connection.release();
-          server.listen(PORT, () => {
-            console.log(`Server running on http://localhost:${PORT}`);
+          server.listen(PORT, '0.0.0.0', () => {
+            console.log(`⚡️ FlashCab Mall backend running on http://0.0.0.0:${PORT}/api`);
           });
         }
       );

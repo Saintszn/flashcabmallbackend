@@ -70,6 +70,17 @@ exports.getCoupons = (req, res) => {
   });
 };
 
+exports.deleteCoupon = (req, res) => {
+  const { code } = req.params;
+  const query = 'DELETE FROM Coupons WHERE code = ?';
+  db.query(query, [code], (err, results) => {
+    if (err) return res.status(500).json({ message: 'Database error', error: err });
+    return res.status(200).json({ message: 'Coupon redeemed successfully' });
+  });
+};
+
+
+
 // Validate coupon
 exports.validateCoupon = (req, res) => {
   const { code } = req.body;
@@ -78,6 +89,11 @@ exports.validateCoupon = (req, res) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     if (results.length === 0) return res.status(404).json({ message: 'Coupon not found' });
     // Add additional validation logic (e.g., expiry checks) as needed.
+    const currentDate = new Date();
+    const expiryDate = new Date(results[0].expiryDate);
+    if (currentDate > expiryDate) {
+      return res.status(400).json({ message: 'Coupon has expired' });
+    }
     res.status(200).json({ valid: true, coupon: results[0] });
   });
 };

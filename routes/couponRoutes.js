@@ -12,7 +12,9 @@ router.post('/', authMiddleware, couponController.createCoupon);
 // Update coupon (admin)
 router.put('/:id', authMiddleware, couponController.updateCoupon);
 
+router.delete('/:code', authMiddleware, couponController.deleteCoupon);
+
 // Validate coupon (open to users)
-router.post('/validate', couponController.validateCoupon);
+router.post('/coupons/validate', couponController.validateCoupon);
 
 module.exports = router;

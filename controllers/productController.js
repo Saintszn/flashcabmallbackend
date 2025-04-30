@@ -61,39 +61,99 @@ exports.createProduct = (req, res) => {
   );
 };
 
-// Get all products, or only those in a given category
+// Get all products (with optional category filter)
 exports.getProducts = (req, res) => {
   const { categoryId } = req.query;
-  let sql = 'SELECT id, name, price, imageUrl, description, rating FROM Products';
+  let sql = 'SELECT id, name, price, imageUrl, rating, createdAt FROM Products';
   const params = [];
-
   if (categoryId) {
     sql += ' WHERE categoryId = ?';
     params.push(parseInt(categoryId, 10));
   }
 
+    // Always sort results by creation date (newest first)
+    sql += ' ORDER BY createdAt DESC';
+
   db.query(sql, params, (err, results) => {
     if (err) {
-      console.error('Database error fetching products by category:', err);
+      console.error('Database error fetching products:', err);
       return res.status(500).json({ message: 'Database error', error: err });
     }
-    res.status(200).json(results);
+    // Check for active flash sale
+    const flashSaleSql = 'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1';
+    db.query(flashSaleSql, (err2, flashResults) => {
+      if (!err2 && flashResults.length > 0) {
+        const discount = parseFloat(flashResults[0].discount);
+        results = results.map(item => {
+          const newPrice = item.price * (1 - discount / 100);
+          // Round or format as needed:
+          item.price = parseFloat(newPrice.toFixed(2));
+          return item;
+        });
+      }
+      // Send the (possibly discounted) results
+      res.status(200).json(results);
+    });
   });
 };
 
 
-
-
-// Get product by id
+// Get product by ID
 exports.getProductById = (req, res) => {
   const { id } = req.params;
   const query = 'SELECT * FROM Products WHERE id = ?';
   db.query(query, [id], (err, results) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-    if (results.length === 0) return res.status(404).json({ message: 'Product not found' });
-    res.status(200).json(results[0]);
+    if (results.length === 0) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    let product = results[0];
+    // Apply flash sale discount if active
+    const flashSaleSql = 'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1';
+    db.query(flashSaleSql, (err2, flashResults) => {
+      if (!err2 && flashResults.length > 0) {
+        const discount = parseFloat(flashResults[0].discount);
+        const newPrice = product.price * (1 - discount / 100);
+        product.price = parseFloat(newPrice.toFixed(2));
+      }
+      res.status(200).json(product);
+    });
   });
 };
+
+// Search products by name
+exports.searchProducts = (req, res) => {
+  const q = req.query.q && req.query.q.trim();
+  if (!q) {
+    return res.status(400).json({ message: 'Query parameter q is required.' });
+  }
+  const sql = `
+    SELECT id, name, price, imageUrl, rating
+    FROM Products
+    WHERE name LIKE ?
+  `;
+  const likePattern = `%${q}%`;
+  db.query(sql, [likePattern], (err, results) => {
+    if (err) {
+      console.error('Database error on searchProducts:', err);
+      return res.status(500).json({ message: 'Database error', error: err });
+    }
+    // Apply flash sale discount if active
+    const flashSaleSql = 'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1';
+    db.query(flashSaleSql, (err2, flashResults) => {
+      if (!err2 && flashResults.length > 0) {
+        const discount = parseFloat(flashResults[0].discount);
+        results = results.map(item => {
+          const newPrice = item.price * (1 - discount / 100);
+          item.price = parseFloat(newPrice.toFixed(2));
+          return item;
+        });
+      }
+      res.status(200).json(results);
+    });
+  });
+};
+
 
 
 
@@ -117,26 +177,3 @@ exports.deleteProduct = (req, res) => {
     res.status(200).json({ message: 'Product deleted successfully' });
   });
 };
-
-
-exports.searchProducts = (req, res) => {
-  const q = req.query.q && req.query.q.trim();
-  if (!q) {
-    return res.status(400).json({ message: 'Query parameter q is required.' });
-  }
-  // Use LIKE for partial matches; adjust columns as needed
-  const sql = `
-    SELECT id, name, price, imageUrl, rating
-    FROM Products
-    WHERE name LIKE ?
-  `;
-  const likePattern = `%${q}%`;
-  db.query(sql, [likePattern], (err, results) => {
-    if (err) {
-      console.error('Database error on searchProducts:', err);
-      return res.status(500).json({ message: 'Database error', error: err });
-    }
-    res.status(200).json(results);
-  });
-};
-  

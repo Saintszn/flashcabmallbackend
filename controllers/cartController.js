@@ -1,47 +1,68 @@
 // backend/controllers/cartController.js
 const db = require('../config/db');
 
-// GET /api/cart
 exports.getCart = (req, res) => {
   const userId = req.user.id;
-  const sql = `
+  const cartSql = `
     SELECT
-      c.id,
-      c.quantity,
-      c.size,
-      p.id AS productId,
-      p.name,
-      p.price,
-      p.imageUrl
+      c.id            AS cartItemId,
+      p.id            AS productId,
+      p.name          AS name,
+      p.price         AS price,
+      p.imageUrl      AS imageUrl,
+      c.quantity      AS quantity,
+      c.size          AS size
     FROM Cart c
     JOIN Products p ON c.productId = p.id
     WHERE c.userId = ?
-    ORDER BY c.addedAt DESC
   `;
-  db.query(sql, [userId], (err, rows) => {
+  db.query(cartSql, [userId], (err, results) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-    // Build summary
-    let subTotal = 0;
-    rows.forEach(r => { subTotal += r.price * r.quantity; });
-    const deliveryFee = 0;
-    const discount = 0;
-    const total = subTotal + deliveryFee - discount;
-    res.json({
-      items: rows.map(r => ({
-        id: r.id,
-        quantity: r.quantity,
-        size: r.size,
-        product: {
-          id: r.productId,
-          name: r.name,
-          price: r.price,
-          imageUrl: r.imageUrl
+    // check for active flash sale
+    db.query(
+      'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1',
+      (err2, flashResults) => {
+        let discountPct = 0;
+        if (!err2 && flashResults.length) {
+          discountPct = parseFloat(flashResults[0].discount);
         }
-      })),
-      summary: { subTotal, deliveryFee, discount, total }
-    });
+        // build items
+        const items = results.map(row => {
+          let finalPrice = parseFloat(row.price);
+          if (discountPct) {
+            finalPrice = parseFloat((finalPrice * (1 - discountPct / 100)).toFixed(2));
+          }
+          return {
+            id: row.cartItemId,
+            quantity: row.quantity,
+            size: row.size,
+            product: {
+              id: row.productId,
+              name: row.name,
+              price: finalPrice,
+              imageUrl: row.imageUrl,
+            }
+          };
+        });
+        // summary
+        const subTotal = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+        const deliveryFee = 0;
+        const couponDiscount = 0;
+        const total = parseFloat((subTotal + deliveryFee - couponDiscount).toFixed(2));
+        res.json({
+          items,
+          summary: {
+            subTotal: parseFloat(subTotal.toFixed(2)),
+            deliveryFee,
+            discount: couponDiscount,
+            total
+          }
+        });
+      }
+    );
   });
 };
+
 
 // POST /api/cart
 exports.addToCart = (req, res) => {
