@@ -20,20 +20,25 @@ const upload = multer({ storage }).single('profileImage');
 
 exports.uploadProfileImage = (req, res) => {
   upload(req, res, (err) => {
-    if (err) return res.status(500).json({ message: 'Upload failed', error: err });
+    if (err)
+      return res.status(500).json({ message: 'Upload failed', error: err });
 
     const imageUrl = `/uploads/admin/${req.file.filename}`;
 
-    // Save path in DB under settings as 'adminProfileImage'
+    // Save the image URL in the database for the admin profile
     const db = require('../config/db');
-    const query = `INSERT INTO Admin (imageUrl,) VALUES (?)`;
-    db.query(query, ['adminProfileImage', imageUrl, imageUrl], (err) => {
-      if (err) return res.status(500).json({ message: 'Database error', error: err });
+    // Corrected SQL query without the extra comma and matching parameter count
+    const query = `INSERT INTO Admin (imageUrl) VALUES (?)`;
+
+    db.query(query, [imageUrl], (err) => {
+      if (err)
+        return res.status(500).json({ message: 'Database error', error: err });
 
       res.status(200).json({ message: 'Profile image updated', imageUrl });
     });
   });
 };
+
 
 const db = require('../config/db');
 // Get ProfileDetails
