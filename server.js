@@ -49,7 +49,17 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors({ origin: true, credentials: true }));
+
+// 1) CORS: reflect any origin, allow credentials
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin like mobile apps or curl
+    if (!origin) return callback(null, true);
+    callback(null, true);
+  },
+  credentials: true,
+}));
+app.options('*', cors());
 
 
 
@@ -155,14 +165,22 @@ app.get('/admin-panel/*', (req, res) => {
 const server = http.createServer(app);
 // Allow Socket.IO from any LAN host
 const io = new Server(server, {
-  path: '/socket.io',  
+  path: '/socket.io',                // must match client exactly
+  allowEIO3: true,                   // in case client falls back to EIO3
   transports: ['polling', 'websocket'],
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  cookie: true,
   cors: {
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      callback(null, true);
+    },
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
 });
+
 
 // -- Attach io to express for controllers
 app.set('io', io);
@@ -182,6 +200,22 @@ io.use((socket, next) => {
   } catch {
     next(new Error('Authentication error'));
   }
+});
+
+// (optional) echo‐back middleware so you can inspect requests
+io.use((socket, next) => {
+  console.log('Incoming handshake from', socket.handshake.headers.origin);
+  next();
+});
+
+io.on('connection', (socket) => {
+  console.log('client connected', socket.id);
+
+  // example emit
+  socket.on('hello', (msg) => {
+    console.log('got hello:', msg);
+    socket.emit('welcome', { time: Date.now() });
+  });
 });
 
 
