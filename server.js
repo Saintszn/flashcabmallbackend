@@ -49,14 +49,9 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(cors({ origin: true, credentials: true }));
 
-const corsOrigin = process.env.CORS_ORIGIN || '*';
-app.use(cors({ 
-  origin: true,
-  credentials: true 
-}));
 
-app.options('*', cors());
 
 
 
@@ -160,6 +155,8 @@ app.get('/admin-panel/*', (req, res) => {
 const server = http.createServer(app);
 // Allow Socket.IO from any LAN host
 const io = new Server(server, {
+  path: '/socket.io',  
+  transports: ['polling', 'websocket'],
   cors: {
     origin: true,
     methods: ['GET', 'POST'],
