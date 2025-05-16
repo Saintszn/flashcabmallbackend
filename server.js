@@ -11,14 +11,13 @@ const path  = require('path');
 
 
 
-
 // Load environment variables
 dotenv.config();
+global.sseCartClients = [];  
 
 const settingsController = require('./controllers/settingsController');
 const notificationController = require('./controllers/notificationController');
 const chatController = require('./controllers/chatController');
-
 
 
 
@@ -39,16 +38,13 @@ const cartRoutes        = require('./routes/cartRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const searchController = require('./controllers/searchController');
 
-
 const app = express();
-
 
 // *** ADD THIS BLOCK AT THE VERY TOP ***
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} — Origin: ${req.headers.origin}`);
   next();
 });
-
 
 // 1) CORS: reflect any origin, allow credentials
 app.use(cors({
@@ -64,17 +60,14 @@ app.options('*', cors());
 
 
 
-
 app.use(bodyParser.json());
 app.use(morgan('dev'));
-
 
 // 1. Serve uploads/users statically
 app.use(
   '/uploads/users',
   express.static(path.join(__dirname, 'uploads/users'))
 );
-
 
 app.get(
   '/api/user/profile',
@@ -103,14 +96,12 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/cart', cartRoutes);
   
 
-
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/messages', authMiddleware, chatRoutes);
 
 // Search
 app.get('/api/search/suggestions', authMiddleware, searchController.getSuggestions);
 app.get('/api/search', authMiddleware, searchController.searchProducts);
-
 
 // Use routes
 app .use('/api/auth', authRoutes);
@@ -128,7 +119,6 @@ app.use('/api/wishlist', authMiddleware, wishlistRoutes);
 
 
 
-
 // Alias for mobile/chat clients expecting /api/chat
 app.use('/api/chat', authMiddleware, chatRoutes);
 app.get('/api/flashsale/current', settingsController.getFlashsale);
@@ -140,26 +130,51 @@ app.use('/api/user', userRoutes);
 
 
 
-
 // -- Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/icons', express.static(path.join(__dirname, 'icons')));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 
-
-// Serve React admin‑panel build at /admin-panel
+// Serve React admin panel build at /admin-panel
 app.use(
   '/admin-panel',
   express.static(path.join(__dirname, '../admin-panel/build'))
 );
 
-// SPA fallback for admin‑panel routes
+// SSE endpoint for cart
+const authMiddleware = require('./middleware/authMiddleware');
+app.get('/api/cart/subscribe', authMiddleware, (req, res) => {
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  // Send initial comment to establish stream
+  res.write(`: connected\n\n`);
+
+  const client = { userId: req.user.id, res };
+  global.sseCartClients.push(client);
+
+  // Remove on disconnect
+  req.on('close', () => {
+    global.sseCartClients = global.sseCartClients.filter(c => c !== client);
+  });
+});
+// Heartbeat every 30s
+setInterval(() => {
+  global.sseCartClients.forEach(({ res }) => {
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  });
+}, 30_000);
+// ───────────────────────────────────────────────────────────────────────────
+
+// SPA fallback for admin panel routes
 app.get('/admin-panel/*', (req, res) => {
   res.sendFile(
     path.join(__dirname, '../admin-panel/build', 'index.html')
   );
 });
-
 
 // -- Create HTTP & Socket.IO servers
 const server = http.createServer(app);
@@ -179,14 +194,6 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-});
-
-// after `const io = new Server(httpServer, …)`
-io.on('connection', socket => {
-  // client must immediately emit 'joinRoom' with their userId
-  socket.on('joinRoom', ({ userId }) => {
-    socket.join(`user_${userId}`);
-  });
 });
 
 // -- Attach io to express for controllers
@@ -224,8 +231,6 @@ io.on('connection', (socket) => {
     socket.emit('welcome', { time: Date.now() });
   });
 });
-
-
 
 
 io.on('connection', socket => {
@@ -273,12 +278,10 @@ io.on('connection', socket => {
 
 
 
-
 // Basic route
 app.get('/', (req, res) => {
   res.send('FlashCab Mall Backend API Running');
 });
-
 
 // 1️⃣ Seed categories & subcategories on startup
 const builtInCategories = [
@@ -467,7 +470,6 @@ const builtInCategories = [
     ]
   }
 ];
-
 
 db.getConnection((err, connection) => {
   if (err) {

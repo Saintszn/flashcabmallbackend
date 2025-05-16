@@ -1,10 +1,11 @@
+// backend/controllers/cartController.js
 const db = require('../config/db');
 
-// In-memory store of pending responses per user
-const pendingPolls = {};
-
-// Helper to fetch current cart items & summary
-function fetchCartData(userId, callback) {
+/**
+ * Helper: re-fetch the user's cart and broadcast over SSE
+ */
+function broadcastCartUpdate(userId, eventType) {
+  // 1) Fetch cart items
   const cartSql = `
     SELECT
       c.id            AS cartItemId,
@@ -18,20 +19,17 @@ function fetchCartData(userId, callback) {
     JOIN Products p ON c.productId = p.id
     WHERE c.userId = ?
   `;
-
   db.query(cartSql, [userId], (err, results) => {
-    if (err) return callback(err);
-
+    if (err) return;
+    // 2) Check for active flash sale
     db.query(
       'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1',
       (err2, flashResults) => {
-        if (err2) return callback(err2);
-
         let discountPct = 0;
-        if (flashResults.length) {
+        if (!err2 && flashResults.length) {
           discountPct = parseFloat(flashResults[0].discount);
         }
-
+        // 3) Build item list with adjusted prices
         const items = results.map(row => {
           let finalPrice = parseFloat(row.price);
           if (discountPct) {
@@ -49,61 +47,93 @@ function fetchCartData(userId, callback) {
             }
           };
         });
-
+        // 4) Compute summary
         const subTotal = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
         const deliveryFee = 0;
-        const couponDiscount = 0;
-        const total = parseFloat((subTotal + deliveryFee - couponDiscount).toFixed(2));
-
-        const summary = {
-          subTotal: parseFloat(subTotal.toFixed(2)),
-          deliveryFee,
-          discount: couponDiscount,
-          total
+        const discount = 0;
+        const total = parseFloat((subTotal + deliveryFee - discount).toFixed(2));
+        const payload = {
+          items,
+          summary: {
+            subTotal: parseFloat(subTotal.toFixed(2)),
+            deliveryFee,
+            discount,
+            total
+          }
         };
 
-        callback(null, { items, summary });
+        // 5) Broadcast to all SSE clients for this user
+        if (!global.sseCartClients || !global.sseCartClients.length) return;
+        global.sseCartClients
+          .filter(c => c.userId === userId)
+          .forEach(({ res }) => {
+            res.write(`event: ${eventType}\n`);
+            res.write(`data: ${JSON.stringify(payload)}\n\n`);
+          });
       }
     );
   });
 }
 
-// ⏳ Long-poll GET /api/cart
 exports.getCart = (req, res) => {
   const userId = req.user.id;
-
-  // Hold open the request for up to 30 seconds
-  const timeoutId = setTimeout(() => {
-    fetchCartData(userId, (err, data) => {
-      if (err) return res.status(500).json({ message: 'Database error', error: err });
-      res.json(data);
-    });
-    removePending(userId, res);
-  }, 30000);
-
-  // Register this pending poll
-  if (!pendingPolls[userId]) pendingPolls[userId] = [];
-  pendingPolls[userId].push({ res, timeoutId });
-};
-
-// Notify any waiting poll for the user with updated cart
-function resolvePendingPolls(userId) {
-  if (!pendingPolls[userId]) return;
-  fetchCartData(userId, (err, data) => {
-    if (err) {
-      pendingPolls[userId].forEach(({ res }) => res.status(500).json({ message: 'Error', error: err }));
-    } else {
-      pendingPolls[userId].forEach(({ res }) => res.json(data));
-    }
-    pendingPolls[userId].forEach(({ timeoutId }) => clearTimeout(timeoutId));
-    pendingPolls[userId] = [];
+  const cartSql = `
+    SELECT
+      c.id            AS cartItemId,
+      p.id            AS productId,
+      p.name          AS name,
+      p.price         AS price,
+      p.imageUrl      AS imageUrl,
+      c.quantity      AS quantity,
+      c.size          AS size
+    FROM Cart c
+    JOIN Products p ON c.productId = p.id
+    WHERE c.userId = ?
+  `;
+  db.query(cartSql, [userId], (err, results) => {
+    if (err) return res.status(500).json({ message: 'Database error', error: err });
+    // check for active flash sale
+    db.query(
+      'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1',
+      (err2, flashResults) => {
+        let discountPct = 0;
+        if (!err2 && flashResults.length) {
+          discountPct = parseFloat(flashResults[0].discount);
+        }
+        const items = results.map(row => {
+          let finalPrice = parseFloat(row.price);
+          if (discountPct) {
+            finalPrice = parseFloat((finalPrice * (1 - discountPct / 100)).toFixed(2));
+          }
+          return {
+            id: row.cartItemId,
+            quantity: row.quantity,
+            size: row.size,
+            product: {
+              id: row.productId,
+              name: row.name,
+              price: finalPrice,
+              imageUrl: row.imageUrl,
+            }
+          };
+        });
+        const subTotal = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+        const deliveryFee = 0;
+        const couponDiscount = 0;
+        const total = parseFloat((subTotal + deliveryFee - couponDiscount).toFixed(2));
+        res.json({
+          items,
+          summary: {
+            subTotal: parseFloat(subTotal.toFixed(2)),
+            deliveryFee,
+            discount: couponDiscount,
+            total
+          }
+        });
+      }
+    );
   });
-}
-
-function removePending(userId, resToRemove) {
-  if (!pendingPolls[userId]) return;
-  pendingPolls[userId] = pendingPolls[userId].filter(({ res }) => res !== resToRemove);
-}
+};
 
 // POST /api/cart
 exports.addToCart = (req, res) => {
@@ -116,9 +146,9 @@ exports.addToCart = (req, res) => {
   `;
   db.query(sql, [userId, productId, quantity, size], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-
-    resolvePendingPolls(userId);
     res.status(201).json({ message: 'Added to cart' });
+    // SSE broadcast
+    broadcastCartUpdate(userId, 'itemAdded');
   });
 };
 
@@ -130,9 +160,9 @@ exports.updateCart = (req, res) => {
   const sql = `UPDATE Cart SET quantity = ? WHERE id = ? AND userId = ?`;
   db.query(sql, [quantity, cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-
-    resolvePendingPolls(userId);
     res.json({ message: 'Quantity updated' });
+    // SSE broadcast
+    broadcastCartUpdate(userId, 'itemUpdated');
   });
 };
 
@@ -143,35 +173,36 @@ exports.removeFromCart = (req, res) => {
   const sql = `DELETE FROM Cart WHERE id = ? AND userId = ?`;
   db.query(sql, [cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-
-    resolvePendingPolls(userId);
     res.json({ message: 'Removed from cart' });
+    // SSE broadcast
+    broadcastCartUpdate(userId, 'itemRemoved');
   });
 };
 
 // PATCH /api/cart/apply-coupon
-exports.applyCoupon = (req, res) => {
+exports.applyCoupon = async (req, res) => {
   const userId = req.user.id;
   const { code } = req.body;
-
+  // Validate coupon
   db.query(`SELECT * FROM Coupons WHERE code = ?`, [code], (e, coupons) => {
     if (e) return res.status(500).json({ message: 'Coupon lookup error', error: e });
     if (!coupons.length) return res.status(404).json({ message: 'Coupon not found' });
-
     const discount = parseFloat(coupons[0].discount);
-
-    fetchCartData(userId, (err2, data) => {
-      if (err2) {
-        return res.status(500).json({ message: 'Database error', error: err2 });
-      }
-
-      data.summary.discount = discount;
-      data.summary.total = parseFloat(
-        (data.summary.subTotal + data.summary.deliveryFee - discount).toFixed(2)
-      );
-
-      resolvePendingPolls(userId);
-      res.json({ summary: data.summary });
+    // Re-fetch cart summary
+    const sql = `
+      SELECT c.quantity, p.price
+      FROM Cart c JOIN Products p ON c.productId = p.id
+      WHERE c.userId = ?
+    `;
+    db.query(sql, [userId], (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Database error', error: err });
+      let subTotal = 0;
+      rows.forEach(r => (subTotal += r.price * r.quantity));
+      const deliveryFee = 0;
+      const total = subTotal + deliveryFee - discount;
+      res.json({
+        summary: { subTotal, deliveryFee, discount, total }
+      });
     });
   });
 };
