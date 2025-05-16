@@ -181,6 +181,13 @@ const io = new Server(server, {
   },
 });
 
+// after `const io = new Server(httpServer, …)`
+io.on('connection', socket => {
+  // client must immediately emit 'joinRoom' with their userId
+  socket.on('joinRoom', ({ userId }) => {
+    socket.join(`user_${userId}`);
+  });
+});
 
 // -- Attach io to express for controllers
 app.set('io', io);
@@ -217,6 +224,7 @@ io.on('connection', (socket) => {
     socket.emit('welcome', { time: Date.now() });
   });
 });
+
 
 
 
