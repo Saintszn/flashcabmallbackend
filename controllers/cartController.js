@@ -1,5 +1,7 @@
-// backend/controllers/cartController.js
 const db = require('../config/db');
+
+// In-memory store of pending responses per user
+const pendingPolls = {};
 
 // Helper to fetch current cart items & summary
 function fetchCartData(userId, callback) {
@@ -20,7 +22,6 @@ function fetchCartData(userId, callback) {
   db.query(cartSql, [userId], (err, results) => {
     if (err) return callback(err);
 
-    // check for active flash sale
     db.query(
       'SELECT discount FROM Flashsale WHERE expiryDate > NOW() LIMIT 1',
       (err2, flashResults) => {
@@ -31,7 +32,6 @@ function fetchCartData(userId, callback) {
           discountPct = parseFloat(flashResults[0].discount);
         }
 
-        // build items
         const items = results.map(row => {
           let finalPrice = parseFloat(row.price);
           if (discountPct) {
@@ -50,7 +50,6 @@ function fetchCartData(userId, callback) {
           };
         });
 
-        // summary
         const subTotal = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
         const deliveryFee = 0;
         const couponDiscount = 0;
@@ -69,12 +68,42 @@ function fetchCartData(userId, callback) {
   });
 }
 
+// ⏳ Long-poll GET /api/cart
 exports.getCart = (req, res) => {
-  fetchCartData(req.user.id, (err, data) => {
-    if (err) return res.status(500).json({ message: 'Database error', error: err });
-    res.json(data);
-  });
+  const userId = req.user.id;
+
+  // Hold open the request for up to 30 seconds
+  const timeoutId = setTimeout(() => {
+    fetchCartData(userId, (err, data) => {
+      if (err) return res.status(500).json({ message: 'Database error', error: err });
+      res.json(data);
+    });
+    removePending(userId, res);
+  }, 30000);
+
+  // Register this pending poll
+  if (!pendingPolls[userId]) pendingPolls[userId] = [];
+  pendingPolls[userId].push({ res, timeoutId });
 };
+
+// Notify any waiting poll for the user with updated cart
+function resolvePendingPolls(userId) {
+  if (!pendingPolls[userId]) return;
+  fetchCartData(userId, (err, data) => {
+    if (err) {
+      pendingPolls[userId].forEach(({ res }) => res.status(500).json({ message: 'Error', error: err }));
+    } else {
+      pendingPolls[userId].forEach(({ res }) => res.json(data));
+    }
+    pendingPolls[userId].forEach(({ timeoutId }) => clearTimeout(timeoutId));
+    pendingPolls[userId] = [];
+  });
+}
+
+function removePending(userId, resToRemove) {
+  if (!pendingPolls[userId]) return;
+  pendingPolls[userId] = pendingPolls[userId].filter(({ res }) => res !== resToRemove);
+}
 
 // POST /api/cart
 exports.addToCart = (req, res) => {
@@ -88,15 +117,8 @@ exports.addToCart = (req, res) => {
   db.query(sql, [userId, productId, quantity, size], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
 
-    // fetch & emit
-    fetchCartData(userId, (err2, data) => {
-      if (!err2) {
-        const io = req.app.get('io');
-        io.to(`user_${userId}`).emit('cartUpdated', data);
-      }
-      // respond as before
-      res.status(201).json({ message: 'Added to cart' });
-    });
+    resolvePendingPolls(userId);
+    res.status(201).json({ message: 'Added to cart' });
   });
 };
 
@@ -109,14 +131,8 @@ exports.updateCart = (req, res) => {
   db.query(sql, [quantity, cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
 
-    // fetch & emit
-    fetchCartData(userId, (err2, data) => {
-      if (!err2) {
-        const io = req.app.get('io');
-        io.to(`user_${userId}`).emit('cartUpdated', data);
-      }
-      res.json({ message: 'Quantity updated' });
-    });
+    resolvePendingPolls(userId);
+    res.json({ message: 'Quantity updated' });
   });
 };
 
@@ -128,14 +144,8 @@ exports.removeFromCart = (req, res) => {
   db.query(sql, [cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
 
-    // fetch & emit
-    fetchCartData(userId, (err2, data) => {
-      if (!err2) {
-        const io = req.app.get('io');
-        io.to(`user_${userId}`).emit('cartUpdated', data);
-      }
-      res.json({ message: 'Removed from cart' });
-    });
+    resolvePendingPolls(userId);
+    res.json({ message: 'Removed from cart' });
   });
 };
 
@@ -144,29 +154,23 @@ exports.applyCoupon = (req, res) => {
   const userId = req.user.id;
   const { code } = req.body;
 
-  // Validate coupon
   db.query(`SELECT * FROM Coupons WHERE code = ?`, [code], (e, coupons) => {
     if (e) return res.status(500).json({ message: 'Coupon lookup error', error: e });
     if (!coupons.length) return res.status(404).json({ message: 'Coupon not found' });
 
     const discount = parseFloat(coupons[0].discount);
 
-    // Re-fetch cart items & apply discount to summary
     fetchCartData(userId, (err2, data) => {
       if (err2) {
         return res.status(500).json({ message: 'Database error', error: err2 });
       }
 
-      // override the discount & totals
       data.summary.discount = discount;
       data.summary.total = parseFloat(
         (data.summary.subTotal + data.summary.deliveryFee - discount).toFixed(2)
       );
 
-      // emit & respond
-      const io = req.app.get('io');
-      io.to(`user_${userId}`).emit('cartUpdated', data);
-
+      resolvePendingPolls(userId);
       res.json({ summary: data.summary });
     });
   });
