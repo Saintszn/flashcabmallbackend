@@ -2,28 +2,37 @@
 
 const db = require('../config/db');
 
-
 exports.createFlashsale = (req, res) => {
-  let { title, discount, expiryDate, } = req.body;
-
+  let { title, discount, expiryDate } = req.body;
 
   title = title === '' ? null : title;
   discount = discount === '' ? null : discount;
-  
-  if (title == null || discount == null || !expiryDate ) {
+
+  if (title == null || discount == null || !expiryDate) {
     return res.status(400).json({
       message: 'Flashsale title, discount, and expiry date are required.',
     });
   }
-  const validTitle = (title);
+  const validTitle = title;
   const validDiscount = parseFloat(discount);
 
-  const query = `INSERT INTO Flashsale (title, discount, expiryDate) VALUES (?, ?, ?) `;
-  db.query(query, [validTitle, validDiscount, expiryDate,], (err, results) => {
+  const query = `INSERT INTO Flashsale (title, discount, expiryDate) VALUES (?, ?, ?)`;
+  db.query(query, [validTitle, validDiscount, expiryDate], (err, results) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
+
+    const flashsaleId = results.insertId;
     res.status(201).json({
       message: 'Flashsale set and started successfully',
-      flashsaleId: results.insertId,
+      flashsaleId,
+    });
+
+    // --- Real-time emit to all users ---
+    const io = req.app.get('io');
+    io.emit('flashSaleStarted', {
+      flashsaleId,
+      title: validTitle,
+      discount: validDiscount,
+      expiryDate,
     });
   });
 };
@@ -48,11 +57,10 @@ exports.getFlashsaleById = (req, res) => {
   });
 };
 
-
 exports.createNotification = (req, res) => {
   const { title, iconUrl, message, date } = req.body;
 
-  if (!title || !iconUrl || !message|| !date) {
+  if (!title || !iconUrl || !message || !date) {
     return res.status(400).json({ message: 'Title, iconUrl, date and message are required.' });
   }
 
@@ -82,6 +90,17 @@ exports.createNotification = (req, res) => {
           sentCount: result.affectedRows,
           groupId: groupId
         });
+
+        // Real-time notification emit
+        const io = req.app.get('io');
+        users.forEach(u => {
+          io.to(`user_${u.id}`).emit('notificationReceived', {
+            notificationGroupId: groupId,
+            title,
+            message,
+            date,
+          });
+        });
       });
     });
   });
@@ -108,7 +127,6 @@ exports.getNotification = (req, res) => {
   });
 };
 
-
 // Get Notification by id
 exports.getNotificationById = (req, res) => {
   const { id } = req.params;
@@ -132,18 +150,29 @@ exports.createAdvert = (req, res) => {
     VALUES (?, ?, ?, ?)
   `;
 
-  db.query(query, [ title, imageUrl, link, date ], (err, results) => {
+  db.query(query, [title, imageUrl, link, date], (err, results) => {
     if (err) {
       console.error('Database error inserting Advert:', err);
       return res.status(500).json({ message: 'Database error', error: err });
     }
+
+    const advertId = results.insertId;
     res.status(201).json({
       message: 'Advert created successfully',
-      advertId: results.insertId
+      advertId
+    });
+
+    // --- Real-time emit to all users ---
+    const io = req.app.get('io');
+    io.emit('advertPosted', {
+      advertId,
+      title,
+      imageUrl,
+      link,
+      date,
     });
   });
 };
-
 
 // Get all Adverts
 exports.getAdvert = (req, res) => {
@@ -164,7 +193,3 @@ exports.getAdvertById = (req, res) => {
     res.status(200).json(results[0]);
   });
 };
-
-
-
-

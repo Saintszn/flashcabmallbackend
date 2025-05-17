@@ -4,23 +4,41 @@ const db = require('../config/db');
 // Admin: send a notification to every user
 exports.sendNotification = (req, res) => {
   const { title, iconUrl, message } = req.body;
-  if (!title == null || icon ==null || message==null) {
+  // fix null check and require all fields
+  if (title == null || iconUrl == null || message == null) {
     return res.status(400).json({ message: 'Title, iconUrl, and message are required.' });
   }
 
   // Get all user IDs
   db.query('SELECT id FROM Users', (err, users) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
-    if (users.length === 0) {
+    if (!users || users.length === 0) {
       return res.status(400).json({ message: 'No users to notify.' });
     }
 
     // Prepare bulk insert values
     const values = users.map(u => [u.id, title, iconUrl, message, 0]);
     const insertQuery = `
-      INSERT INTO Notifications (userId, title, iconUrl, message, isRead) VALUES ?,?,?,?,?`;
+      INSERT INTO Notifications (userId, title, iconUrl, message, isRead)
+      VALUES ?
+    `;
     db.query(insertQuery, [values], (err, result) => {
       if (err) return res.status(500).json({ message: 'Database error', error: err });
+
+      // Emit real-time notification to each user room
+      const io = req.app.get('io');
+      users.forEach(u => {
+        io.to(`user_${u.id}`).emit('notificationReceived', {
+          notification: {
+            userId: u.id,
+            title,
+            iconUrl,
+            message,
+            isRead: 0
+          }
+        });
+      });
+
       res.status(201).json({
         message: 'Notification sent to all users successfully',
         sentCount: result.affectedRows
@@ -52,7 +70,7 @@ exports.getUnreadCountForUser = (req, res) => {
   });
 };
 
-// URL‑param single‑mark (used by PATCH /:id/read)
+// URL-param single-mark (used by PATCH /:id/read)
 exports.markAsReadById = (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) {

@@ -36,6 +36,18 @@ exports.placeOrder = (req, res) => {
       console.error('Database error placing order:', err);
       return res.status(500).json({ message: 'Database error', error: err });
     }
+
+    // emit real-time events
+    const io = req.app.get('io');
+    io.to('admin').emit('newOrder', {
+      orderId: results.insertId,
+      userId
+    });
+    io.to(`user_${userId}`).emit('orderPlaced', {
+      orderId: results.insertId
+    });
+
+    // respond to client
     res
       .status(201)
       .json({ message: 'Order placed successfully', orderId: results.insertId });
@@ -50,7 +62,24 @@ exports.updateOrderStatus = (req, res) => {
   }
   const query = 'UPDATE Orders SET status = ? WHERE id = ?';
   db.query(query, [status, orderId], err => {
-    if (err) return res.status(500).json({ message: 'Database error', error: err });
+    if (err) {
+      return res.status(500).json({ message: 'Database error', error: err });
+    }
+
+    // fetch the userId for this order so we can notify the user
+    db.query(
+      'SELECT userId FROM Orders WHERE id = ?',
+      [orderId],
+      (err2, results2) => {
+        if (!err2 && results2.length) {
+          const userId = results2[0].userId;
+          const io = req.app.get('io');
+          io.to('admin').emit('orderStatusChanged', { orderId, status });
+          io.to(`user_${userId}`).emit('orderStatusChanged', { orderId, status });
+        }
+      }
+    );
+
     res.status(200).json({ message: 'Order status updated successfully' });
   });
 };
@@ -95,7 +124,6 @@ exports.getLiveOrders = (req, res) => {
 };
 
 // get orders by ID
-
 exports.getOrderByID = (req, res) => {
   const { orderId } = req.params;
   const query = 'SELECT * FROM `Orders` WHERE id = ?';

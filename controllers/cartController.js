@@ -135,6 +135,7 @@ exports.getCart = (req, res) => {
   });
 };
 
+
 // POST /api/cart
 exports.addToCart = (req, res) => {
   const userId = req.user.id;
@@ -149,6 +150,9 @@ exports.addToCart = (req, res) => {
     res.status(201).json({ message: 'Added to cart' });
     // SSE broadcast
     broadcastCartUpdate(userId, 'itemAdded');
+    // SOCKET.IO broadcast
+    const io = req.app.get('io');
+    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 
@@ -163,6 +167,9 @@ exports.updateCart = (req, res) => {
     res.json({ message: 'Quantity updated' });
     // SSE broadcast
     broadcastCartUpdate(userId, 'itemUpdated');
+    // SOCKET.IO broadcast
+    const io = req.app.get('io');
+    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 
@@ -176,6 +183,9 @@ exports.removeFromCart = (req, res) => {
     res.json({ message: 'Removed from cart' });
     // SSE broadcast
     broadcastCartUpdate(userId, 'itemRemoved');
+    // SOCKET.IO broadcast
+    const io = req.app.get('io');
+    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 

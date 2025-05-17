@@ -13,7 +13,6 @@ const path  = require('path');
 
 // Load environment variables
 dotenv.config();
-global.sseCartClients = [];  
 
 const settingsController = require('./controllers/settingsController');
 const notificationController = require('./controllers/notificationController');
@@ -140,34 +139,6 @@ app.use(
   '/admin-panel',
   express.static(path.join(__dirname, '../admin-panel/build'))
 );
-
-// SSE endpoint for cart
-const authMiddleware = require('./middleware/authMiddleware');
-app.get('/api/cart/subscribe', authMiddleware, (req, res) => {
-  // Set SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-  });
-  // Send initial comment to establish stream
-  res.write(`: connected\n\n`);
-
-  const client = { userId: req.user.id, res };
-  global.sseCartClients.push(client);
-
-  // Remove on disconnect
-  req.on('close', () => {
-    global.sseCartClients = global.sseCartClients.filter(c => c !== client);
-  });
-});
-// Heartbeat every 30s
-setInterval(() => {
-  global.sseCartClients.forEach(({ res }) => {
-    res.write(`: heartbeat ${Date.now()}\n\n`);
-  });
-}, 30_000);
-// ───────────────────────────────────────────────────────────────────────────
 
 // SPA fallback for admin panel routes
 app.get('/admin-panel/*', (req, res) => {

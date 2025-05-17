@@ -34,7 +34,6 @@ exports.getWishlist = (req, res) => {
   });
 };
 
-
 exports.addToWishlist = (req, res) => {
   const userId = req.user.id;
   const { productId } = req.body;
@@ -42,6 +41,10 @@ exports.addToWishlist = (req, res) => {
   db.query(sql, [userId, productId], (err, result) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.status(201).json({ message: 'Added to wishlist' });
+
+    // Emit socket event
+    const io = req.app.get('io');
+    io.to(`user_${userId}`).emit('wishlistUpdated', { userId, productId });
   });
 };
 
@@ -52,5 +55,9 @@ exports.removeFromWishlist = (req, res) => {
   db.query(sql, [userId, productId], (err) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.json({ message: 'Removed from wishlist' });
+
+    // Emit socket event
+    const io = req.app.get('io');
+    io.to(`user_${userId}`).emit('wishlistUpdated', { userId, productId });
   });
 };
