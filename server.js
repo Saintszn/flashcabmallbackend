@@ -36,6 +36,7 @@ const categoryRoutes    = require('./routes/categoryRoutes');
 const cartRoutes        = require('./routes/cartRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const searchController = require('./controllers/searchController');
+const pusherRouter = require('./routes/pusherRouter');
 
 const app = express();
 
@@ -115,6 +116,8 @@ app.use('/api/admin', authMiddleware,  adminRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
 app.use('/api/messages', authMiddleware, chatRoutes);
 app.use('/api/wishlist', authMiddleware, wishlistRoutes);
+app.use('/api/pusher', pusherRouter);
+
 
 
 

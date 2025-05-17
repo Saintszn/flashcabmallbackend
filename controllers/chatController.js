@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const pusher = require('../config/pusher');  // ← added
 
 /**
  * List all users who have ever sent a message,
@@ -56,10 +57,9 @@ exports.getMessages = (req, res) => {
 
 /**
  * Post a new admin (or user) reply. Supports text + optional file.
- * Broadcasts the new message via Socket.IO.
+ * Broadcasts the new message via Pusher.
  */
 exports.postMessage = (req, res) => {
-  const io = req.app.get('io');
   const { userId, text } = req.body;
   const file = req.file;
 
@@ -87,9 +87,11 @@ exports.postMessage = (req, res) => {
       createdAt: new Date()
     };
 
-    // Emit in real-time
-    io.to(`user_${chatUserId}`).emit('newMessage', newMsg);
-    if (fromAdmin) io.to('admin').emit('newMessage', newMsg);
+    // Trigger real-time events via Pusher
+    pusher.trigger(`private-user_${chatUserId}`, 'newMessage', newMsg);
+    if (fromAdmin) {
+      pusher.trigger('private-admin', 'newMessage', newMsg);
+    }
 
     res.status(201).json(newMsg);
   });

@@ -1,12 +1,16 @@
 // /backend/controllers/notificationController.js
 const db = require('../config/db');
+const pusher = require('../config/pusher');  // ← new
 
 // Admin: send a notification to every user
 exports.sendNotification = (req, res) => {
   const { title, iconUrl, message } = req.body;
-  // fix null check and require all fields
-  if (title == null || iconUrl == null || message == null) {
-    return res.status(400).json({ message: 'Title, iconUrl, and message are required.' });
+
+  // stricter null/empty check
+  if (!title || !iconUrl || !message) {
+    return res
+      .status(400)
+      .json({ message: 'Title, iconUrl, and message are required.' });
   }
 
   // Get all user IDs
@@ -25,18 +29,21 @@ exports.sendNotification = (req, res) => {
     db.query(insertQuery, [values], (err, result) => {
       if (err) return res.status(500).json({ message: 'Database error', error: err });
 
-      // Emit real-time notification to each user room
-      const io = req.app.get('io');
+      // Emit real-time notification via Pusher to each user channel
       users.forEach(u => {
-        io.to(`user_${u.id}`).emit('notificationReceived', {
-          notification: {
-            userId: u.id,
-            title,
-            iconUrl,
-            message,
-            isRead: 0
+        pusher.trigger(
+          `private-user_${u.id}`,          // channel
+          'notificationReceived',           // event
+          {
+            notification: {
+              userId: u.id,
+              title,
+              iconUrl,
+              message,
+              isRead: 0
+            }
           }
-        });
+        );
       });
 
       res.status(201).json({
@@ -79,7 +86,7 @@ exports.markAsReadById = (req, res) => {
   db.query(
     'UPDATE Notifications SET isRead = 1 WHERE id = ?',
     [id],
-    (err) => {
+    err => {
       if (err) {
         console.error('markAsReadById error:', err);
         return res.status(500).json({ message: 'Database error', error: err });

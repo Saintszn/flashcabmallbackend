@@ -1,6 +1,7 @@
 // /backend/controllers/settingsController.js
 
 const db = require('../config/db');
+const pusher = require('../config/pusher');
 
 exports.createFlashsale = (req, res) => {
   let { title, discount, expiryDate } = req.body;
@@ -26,9 +27,8 @@ exports.createFlashsale = (req, res) => {
       flashsaleId,
     });
 
-    // --- Real-time emit to all users ---
-    const io = req.app.get('io');
-    io.emit('flashSaleStarted', {
+    // --- Real-time emit to all users via Pusher ---
+    pusher.trigger('flashSale', 'flashSaleStarted', {
       flashsaleId,
       title: validTitle,
       discount: validDiscount,
@@ -91,10 +91,9 @@ exports.createNotification = (req, res) => {
           groupId: groupId
         });
 
-        // Real-time notification emit
-        const io = req.app.get('io');
+        // Real-time notification emit via Pusher
         users.forEach(u => {
-          io.to(`user_${u.id}`).emit('notificationReceived', {
+          pusher.trigger(`private-user_${u.id}`, 'notificationReceived', {
             notificationGroupId: groupId,
             title,
             message,
@@ -162,9 +161,8 @@ exports.createAdvert = (req, res) => {
       advertId
     });
 
-    // --- Real-time emit to all users ---
-    const io = req.app.get('io');
-    io.emit('advertPosted', {
+    // --- Real-time emit to all users via Pusher ---
+    pusher.trigger('adverts', 'advertPosted', {
       advertId,
       title,
       imageUrl,

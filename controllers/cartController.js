@@ -1,8 +1,8 @@
-// backend/controllers/cartController.js
 const db = require('../config/db');
+const pusher = require('../config/pusher'); // new import
 
 /**
- * Helper: re-fetch the user's cart and broadcast over SSE
+ * Helper: re-fetch the user's cart and broadcast over SSE + Pusher
  */
 function broadcastCartUpdate(userId, eventType) {
   // 1) Fetch cart items
@@ -70,6 +70,9 @@ function broadcastCartUpdate(userId, eventType) {
             res.write(`event: ${eventType}\n`);
             res.write(`data: ${JSON.stringify(payload)}\n\n`);
           });
+
+        // 6) Broadcast via Pusher
+        pusher.trigger(`user_${userId}`, 'cartUpdated', payload);
       }
     );
   });
@@ -135,7 +138,6 @@ exports.getCart = (req, res) => {
   });
 };
 
-
 // POST /api/cart
 exports.addToCart = (req, res) => {
   const userId = req.user.id;
@@ -148,11 +150,7 @@ exports.addToCart = (req, res) => {
   db.query(sql, [userId, productId, quantity, size], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.status(201).json({ message: 'Added to cart' });
-    // SSE broadcast
     broadcastCartUpdate(userId, 'itemAdded');
-    // SOCKET.IO broadcast
-    const io = req.app.get('io');
-    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 
@@ -165,11 +163,7 @@ exports.updateCart = (req, res) => {
   db.query(sql, [quantity, cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.json({ message: 'Quantity updated' });
-    // SSE broadcast
     broadcastCartUpdate(userId, 'itemUpdated');
-    // SOCKET.IO broadcast
-    const io = req.app.get('io');
-    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 
@@ -181,11 +175,7 @@ exports.removeFromCart = (req, res) => {
   db.query(sql, [cartId, userId], err => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.json({ message: 'Removed from cart' });
-    // SSE broadcast
     broadcastCartUpdate(userId, 'itemRemoved');
-    // SOCKET.IO broadcast
-    const io = req.app.get('io');
-    io.to(`user_${userId}`).emit('cartUpdated');
   });
 };
 

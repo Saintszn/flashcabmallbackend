@@ -1,5 +1,6 @@
 // backend/controllers/wishlistController.js
 const db = require('../config/db');
+const pusher = require('../config/pusher');  // ← new import
 
 exports.getWishlist = (req, res) => {
   const userId = req.user.id;
@@ -42,9 +43,8 @@ exports.addToWishlist = (req, res) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.status(201).json({ message: 'Added to wishlist' });
 
-    // Emit socket event
-    const io = req.app.get('io');
-    io.to(`user_${userId}`).emit('wishlistUpdated', { userId, productId });
+    // Trigger Pusher event instead of Socket.IO
+    pusher.trigger(`user_${userId}`, 'wishlistUpdated', { userId, productId });
   });
 };
 
@@ -56,8 +56,7 @@ exports.removeFromWishlist = (req, res) => {
     if (err) return res.status(500).json({ message: 'Database error', error: err });
     res.json({ message: 'Removed from wishlist' });
 
-    // Emit socket event
-    const io = req.app.get('io');
-    io.to(`user_${userId}`).emit('wishlistUpdated', { userId, productId });
+    // Trigger Pusher event instead of Socket.IO
+    pusher.trigger(`user_${userId}`, 'wishlistUpdated', { userId, productId });
   });
 };
