@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const pusher = require('../config/pusher');  // ← added
+const pusher = require('../config/pusher');  // ← remains as Pusher-only
 
 /**
  * List all users who have ever sent a message,

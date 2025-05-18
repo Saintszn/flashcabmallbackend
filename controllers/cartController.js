@@ -2,7 +2,7 @@ const db = require('../config/db');
 const pusher = require('../config/pusher'); // new import
 
 /**
- * Helper: re-fetch the user's cart and broadcast over SSE + Pusher
+ * Helper: re-fetch the user's cart and broadcast via Pusher
  */
 function broadcastCartUpdate(userId, eventType) {
   // 1) Fetch cart items
@@ -62,16 +62,7 @@ function broadcastCartUpdate(userId, eventType) {
           }
         };
 
-        // 5) Broadcast to all SSE clients for this user
-        if (!global.sseCartClients || !global.sseCartClients.length) return;
-        global.sseCartClients
-          .filter(c => c.userId === userId)
-          .forEach(({ res }) => {
-            res.write(`event: ${eventType}\n`);
-            res.write(`data: ${JSON.stringify(payload)}\n\n`);
-          });
-
-        // 6) Broadcast via Pusher
+        // 5) Broadcast via Pusher
         pusher.trigger(`user_${userId}`, 'cartUpdated', payload);
       }
     );

@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const pusher = require('../config/pusher');
 
 function queryAsync(sql) {
   return new Promise((resolve, reject) => {
@@ -25,10 +26,12 @@ exports.getStats = async (req, res) => {
       totalRevenue: revenueResults[0].totalRevenue
     };
 
+    // Broadcast updated stats via Pusher
+    pusher.trigger('admin', 'statsUpdated', stats);
+
     res.status(200).json(stats);
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ message: 'Database error', error });
   }
 };
-
