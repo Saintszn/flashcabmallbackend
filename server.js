@@ -41,15 +41,29 @@ app.use((req, res, next) => {
 });
 
 // 1) CORS: reflect any origin, allow credentials
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin like mobile apps or curl
-    if (!origin) return callback(null, true);
-    callback(null, true);
-  },
-  credentials: true,
-}));
-app.options('*', cors());
+// CORS – allow all origins, credentials, methods & headers
+app.use((req, res, next) => {
+  // Allow any origin or restrict via process.env.CORS_ORIGIN
+  res.header(
+    'Access-Control-Allow-Origin',
+    process.env.CORS_ORIGIN || '*'
+  );
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header(
+    'Access-Control-Allow-Methods',
+    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+  );
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+  );
+  // Immediately respond to pre-flight OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 
 app.use(bodyParser.json());
 app.use(morgan('dev'));
