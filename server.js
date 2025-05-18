@@ -1,15 +1,11 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const db = require('./config/db');
 const multer = require('multer');
-const path  = require('path');
-
-
+const path = require('path');
 
 // Load environment variables
 dotenv.config();
@@ -18,8 +14,6 @@ const settingsController = require('./controllers/settingsController');
 const notificationController = require('./controllers/notificationController');
 const chatController = require('./controllers/chatController');
 
-
-
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -27,13 +21,13 @@ const orderRoutes = require('./routes/orderRoutes');
 const userRoutes = require('./routes/userRoutes');
 const couponRoutes = require('./routes/couponRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-const adminRoutes        = require('./routes/adminRoutes')
+const adminRoutes = require('./routes/adminRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-const authMiddleware  = require('./middleware/authMiddleware');
+const authMiddleware = require('./middleware/authMiddleware');
 const chatRoutes = require('./routes/chatRoutes');
-const categoryRoutes    = require('./routes/categoryRoutes');
-const cartRoutes        = require('./routes/cartRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
+const cartRoutes = require('./routes/cartRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const searchController = require('./controllers/searchController');
 const pusherRouter = require('./routes/pusherRouter');
@@ -56,9 +50,6 @@ app.use(cors({
   credentials: true,
 }));
 app.options('*', cors());
-
-
-
 
 app.use(bodyParser.json());
 app.use(morgan('dev'));
@@ -88,13 +79,13 @@ app.get(
 app.get('/api', (req, res) => {
   res.send('FlashCab Mall Backend API Running');
 });
-  
+
+
 // Categories (public)
 app.use('/api/categories', categoryRoutes);
-  
-// Cart 
+
+// Cart
 app.use('/api/cart', cartRoutes);
-  
 
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/messages', authMiddleware, chatRoutes);
@@ -104,33 +95,25 @@ app.get('/api/search/suggestions', authMiddleware, searchController.getSuggestio
 app.get('/api/search', authMiddleware, searchController.searchProducts);
 
 // Use routes
-app .use('/api/auth', authRoutes);
-app .use('/api/auth/login', authRoutes);
-app .use('/api/auth/signup', authRoutes);
-app .use( '/api/coupons/validate', authRoutes)
+app.use('/api/auth', authRoutes);
+app.use('/api/auth/login', authRoutes);
+app.use('/api/auth/signup', authRoutes);
+app.use('/api/coupons/validate', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/coupons', authMiddleware, couponRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
-app.use('/api/admin', authMiddleware,  adminRoutes);  
+app.use('/api/admin', authMiddleware, adminRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
 app.use('/api/messages', authMiddleware, chatRoutes);
 app.use('/api/wishlist', authMiddleware, wishlistRoutes);
 app.use('/api/pusher', pusherRouter);
-
-
-
 
 // Alias for mobile/chat clients expecting /api/chat
 app.use('/api/chat', authMiddleware, chatRoutes);
 app.get('/api/flashsale/current', settingsController.getFlashsale);
 app.get('/api/adverts', settingsController.getAdvert);
 app.use('/api/user', userRoutes);
-
-
-
-
-
 
 // -- Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -150,107 +133,7 @@ app.get('/admin-panel/*', (req, res) => {
   );
 });
 
-// -- Create HTTP & Socket.IO servers
-const server = http.createServer(app);
-// Allow Socket.IO from any LAN host
-const io = new Server(server, {
-  path: '/socket.io',                // must match client exactly
-  allowEIO3: true,                   // in case client falls back to EIO3
-  transports: ['polling', 'websocket'],
-  pingInterval: 25000,
-  pingTimeout: 60000,
-  cookie: true,
-  cors: {
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      callback(null, true);
-    },
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
-});
-
-// -- Attach io to express for controllers
-app.set('io', io);
-
-// -- Start listening
 const PORT = process.env.PORT || 3000;
-
-// -- Socket.IO authentication & rooms
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (!token) return next(new Error('Authentication error'));
-  try {
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.user = decoded;
-    next();
-  } catch {
-    next(new Error('Authentication error'));
-  }
-});
-
-// (optional) echo‐back middleware so you can inspect requests
-io.use((socket, next) => {
-  console.log('Incoming handshake from', socket.handshake.headers.origin);
-  next();
-});
-
-io.on('connection', (socket) => {
-  console.log('client connected', socket.id);
-
-  // example emit
-  socket.on('hello', (msg) => {
-    console.log('got hello:', msg);
-    socket.emit('welcome', { time: Date.now() });
-  });
-});
-
-
-io.on('connection', socket => {
-  const { id, role } = socket.user;
-
-  // Admin joins 'admin' room; users join their own room
-  if (role === 'admin') {
-    socket.join('admin');
-  } else {
-    socket.join(`user_${id}`);
-  }
-
-  // Handle incoming chat messages
-  socket.on('chatMessage', async ({ userId, text, fileUrl }) => {
-    const db = require('./config/db');
-    const fromAdmin = role === 'admin';
-    const chatUserId = fromAdmin ? userId : id;
-
-    // Save into MySQL
-    const query = `
-      INSERT INTO Messages (chatUserId, text, fileUrl, fromAdmin)
-      VALUES (?, ?, ?, ?)
-    `;
-    db.query(query, [chatUserId, text || null, fileUrl || null, fromAdmin], (err, result) => {
-      if (err) return console.error(err);
-      const newMsg = {
-        id: result.insertId,
-        chatUserId,
-        text,
-        fileUrl,
-        fromAdmin,
-        createdAt: new Date()
-      };
-
-      // Emit to the relevant rooms
-      io.to(`user_${chatUserId}`).emit('newMessage', newMsg);
-      if (fromAdmin) io.to('admin').emit('newMessage', newMsg);
-    });
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Socket disconnected: ${socket.user.id}`);
-  });
-});
-
-
 
 // Basic route
 app.get('/', (req, res) => {
@@ -449,7 +332,7 @@ db.getConnection((err, connection) => {
   if (err) {
     console.error('Error connecting to the database:', err);
     process.exit(1);
-  } 
+  }
   console.log('Connected to MySQL Database');
 
   // Prepare bulk inserts for categories and subcategories
@@ -480,7 +363,7 @@ db.getConnection((err, connection) => {
 
           // Release connection and start server
           connection.release();
-          server.listen(PORT, '0.0.0.0', () => {
+          app.listen(PORT, '0.0.0.0', () => {
             console.log(`⚡️ FlashCab Mall backend running on http://0.0.0.0:${PORT}/api`);
           });
         }
