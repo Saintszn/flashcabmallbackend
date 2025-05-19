@@ -41,30 +41,31 @@ app.use((req, res, next) => {
 });
 
 // 1) CORS: reflect any origin, allow credentials
-// CORS – allow all origins, credentials, methods & headers
-app.use((req, res, next) => {
-  // Allow any origin or restrict via process.env.CORS_ORIGIN
-  res.header(
-    'Access-Control-Allow-Origin',
-    process.env.CORS_ORIGIN || '*'
-  );
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
-  );
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization'
-  );
-  // Immediately respond to pre-flight OPTIONS
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+// ─── 1) DYNAMIC CORS: echo back whatever Origin is making the request ───
+const corsOptions = {
+  origin: (incomingOrigin, callback) => {
+    // allow non-browser tools (like Postman/mobile)
+    if (!incomingOrigin) {
+      return callback(null, true);
+    }
+    // Mirror the exact Origin header back:
+    callback(null, incomingOrigin);
+  },
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization'
+  ],
+  credentials: true
+};
+app.use(cors(corsOptions));
+// Handle preflight requests for ALL routes
+app.options('*', cors(corsOptions));
 
-
+// ─── 2) Other middleware ───
 app.use(bodyParser.json());
 app.use(morgan('dev'));
 
