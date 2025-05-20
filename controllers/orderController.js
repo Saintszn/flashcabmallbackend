@@ -1,7 +1,6 @@
 // backend/controllers/orderController.js
 
 const db = require('../config/db');
-const pusher = require('../config/pusher');  // <-- new
 
 // Place an order
 exports.placeOrder = (req, res) => {
@@ -38,17 +37,8 @@ exports.placeOrder = (req, res) => {
       return res.status(500).json({ message: 'Database error', error: err });
     }
 
-    // trigger real-time events via Pusher
     const orderId = results.insertId;
-    pusher.trigger('admin', 'newOrder', {
-      orderId,
-      userId
-    });
-    pusher.trigger(`user_${userId}`, 'orderPlaced', {
-      orderId
-    });
 
-    // respond to client
     res
       .status(201)
       .json({ message: 'Order placed successfully', orderId });
@@ -67,16 +57,14 @@ exports.updateOrderStatus = (req, res) => {
       return res.status(500).json({ message: 'Database error', error: err });
     }
 
-    // fetch the userId for this order so we can notify the user
+    // fetch the userId for this order
     db.query(
       'SELECT userId FROM Orders WHERE id = ?',
       [orderId],
       (err2, results2) => {
         if (!err2 && results2.length) {
           const userId = results2[0].userId;
-          // trigger status‐changed events
-          pusher.trigger('admin', 'orderStatusChanged', { orderId, status });
-          pusher.trigger(`user_${userId}`, 'orderStatusChanged', { orderId, status });
+          // no-op after removing Pusher
         }
       }
     );
